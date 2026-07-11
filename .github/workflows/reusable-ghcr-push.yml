@@ -1,0 +1,101 @@
+name: Reusable GHCR Build and Push (Staging)
+
+on:
+  workflow_call:
+    inputs:
+      IMAGE_NAME:
+        description: "Image name on GHCR (default: repository name)"
+        required: false
+        type: string
+        default: ${{ github.event.repository.name }}
+      COMPOSE_SERVICE:
+        description: "Service name in docker-compose.yml on the VPS"
+        required: true
+        type: string
+      COMPOSE_DIR:
+        description: "Directory on the VPS containing docker-compose.yml"
+        required: false
+        type: string
+        default: "/opt/monitor-staging"
+      DEPLOY:
+        description: "Deploy to the staging VPS after pushing the image"
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      NPM_TOKEN:
+        required: false
+      VPS_HOST:
+        required: false
+      VPS_USER:
+        required: false
+      VPS_SSH_KEY:
+        required: false
+
+concurrency:
+  group: staging-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_sha: ${{ steps.build-image.outputs.image_sha }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build, Tag, and Push to GHCR
+        id: build-image
+        env:
+          IMAGE_NAME: ${{ inputs.IMAGE_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # GHCR requires a lowercase namespace
+          GHCR_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME,,}"
+
+          DOCKER_FLAGS=
+
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "No NPM_TOKEN found, building standard image."
+          else
+            echo "NPM_TOKEN detected, using secret mount."
+            DOCKER_FLAGS="--secret id=npm_token,env=NPM_TOKEN"
+          fi
+
+          docker build $DOCKER_FLAGS \
+            -t $GHCR_IMAGE:$IMAGE_TAG \
+            -t $GHCR_IMAGE:staging .
+
+          docker push $GHCR_IMAGE:$IMAGE_TAG
+          docker push $GHCR_IMAGE:staging
+
+          echo "image_sha=$GHCR_IMAGE:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  deploy-to-vps:
+    needs: build-and-push
+    if: ${{ inputs.DEPLOY }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Staging VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd ${{ inputs.COMPOSE_DIR }}
+            docker compose pull ${{ inputs.COMPOSE_SERVICE }}
+            docker compose up -d ${{ inputs.COMPOSE_SERVICE }}
+            docker image prune -f
