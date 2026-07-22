@@ -22,6 +22,11 @@ on:
         required: false
         type: boolean
         default: true
+      BUILD_ARGS:
+        description: "Extra docker build --build-arg values, one KEY=VALUE per line (e.g. NEXT_PUBLIC_BASE_URL=https://monitordev.space)"
+        required: false
+        type: string
+        default: ""
     secrets:
       NPM_TOKEN:
         required: false
@@ -61,6 +66,7 @@ jobs:
           IMAGE_NAME: ${{ inputs.IMAGE_NAME }}
           IMAGE_TAG: ${{ github.ref_name }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          BUILD_ARGS: ${{ inputs.BUILD_ARGS }}
         run: |
           # GHCR requires a lowercase namespace
           GHCR_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME,,}"
@@ -74,7 +80,17 @@ jobs:
             DOCKER_FLAGS="--secret id=npm_token,env=NPM_TOKEN"
           fi
 
-          docker build $DOCKER_FLAGS \
+          # Each non-empty line of BUILD_ARGS becomes one --build-arg KEY=VALUE.
+          # Needed so NEXT_PUBLIC_* (inlined into the JS bundle at build time,
+          # not at container start) resolve to staging values, not the
+          # Dockerfile's production defaults.
+          BUILD_ARG_FLAGS=()
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            BUILD_ARG_FLAGS+=(--build-arg "$line")
+          done <<< "$BUILD_ARGS"
+
+          docker build $DOCKER_FLAGS "${BUILD_ARG_FLAGS[@]}" \
             -t $GHCR_IMAGE:$IMAGE_TAG \
             -t $GHCR_IMAGE:staging .
 
