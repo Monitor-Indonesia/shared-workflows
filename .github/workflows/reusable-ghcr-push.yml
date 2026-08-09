@@ -36,6 +36,12 @@ on:
         required: false
       VPS_SSH_KEY:
         required: false
+      INTERNAL_JWT_SECRET:
+        required: false
+      CLOUDFLARE_ZONE_ID:
+        required: false
+      CLOUDFLARE_TOKEN_API:
+        required: false
 
 concurrency:
   group: staging-${{ github.repository }}

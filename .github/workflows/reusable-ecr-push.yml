@@ -21,6 +21,8 @@ on:
         required: true
       NPM_TOKEN:
         required: false
+      INTERNAL_JWT_SECRET:
+        required: false
 
 jobs:
   build-and-push:
