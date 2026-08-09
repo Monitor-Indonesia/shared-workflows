@@ -117,6 +117,10 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            # Tanpa `set -e`, status job hanya ditentukan perintah terakhir
+            # (`docker image prune -f`) yang praktis selalu sukses — sehingga
+            # `docker compose up -d` boleh gagal total dan deploy tetap hijau.
+            set -eu
             cd ${{ inputs.COMPOSE_DIR }}
             docker compose pull ${{ inputs.COMPOSE_SERVICE }}
             docker compose up -d ${{ inputs.COMPOSE_SERVICE }}

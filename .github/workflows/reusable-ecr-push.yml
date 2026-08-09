@@ -12,6 +12,11 @@ on:
       NAMESPACE:
         required: true
         type: string
+      BUILD_ARGS:
+        description: "Extra docker build --build-arg values, one KEY=VALUE per line (e.g. NEXT_PUBLIC_BASE_URL=https://monitorindonesia.com)"
+        required: false
+        type: string
+        default: ""
     secrets:
       AWS_REGION:
         required: true
@@ -22,6 +27,10 @@ on:
       NPM_TOKEN:
         required: false
       INTERNAL_JWT_SECRET:
+        required: false
+      CLOUDFLARE_ZONE_ID:
+        required: false
+      CLOUDFLARE_TOKEN_API:
         required: false
 
 jobs:
@@ -48,6 +57,7 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          BUILD_ARGS: ${{ inputs.BUILD_ARGS }}
         run: |
           DOCKER_FLAGS=
 
@@ -58,7 +68,18 @@ jobs:
             DOCKER_FLAGS="--secret id=npm_token,env=NPM_TOKEN"
           fi
 
-          docker build $DOCKER_FLAGS -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          # Each non-empty line of BUILD_ARGS becomes one --build-arg KEY=VALUE.
+          # Needed so NEXT_PUBLIC_* (inlined into the JS bundle at build time,
+          # not at container start) resolve to the intended values rather than
+          # the Dockerfile's defaults. Mirrors reusable-ghcr-push.yml.
+          BUILD_ARG_FLAGS=()
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            BUILD_ARG_FLAGS+=(--build-arg "$line")
+          done <<< "$BUILD_ARGS"
+
+          docker build $DOCKER_FLAGS "${BUILD_ARG_FLAGS[@]}" \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
